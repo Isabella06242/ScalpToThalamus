@@ -35,7 +35,7 @@ def main():
     print(f"  tau2 = {args.tau2}")
 
     # input seizure
-    FN_DATA = ""
+    FN_DATA = "trimmed_seizure.mat"
     print(f"data path loaded")
 
     # validate input file
@@ -144,7 +144,7 @@ def main():
     print(ST[:, 0, 1])
 
     ## Save the result
-    output_dir = Path("") # output directory
+    output_dir = Path("MG136_sz2") # output directory
     output_dir.mkdir(exist_ok=True)
 
     for n in range(Y.shape[1]):
