@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+
+# Editor
+.vscode/
+
+# Trained models / prediction artifacts
+*.joblib
+test_predictions.csv
+
+# Data (large binaries / generated DDA output)
+*.mat
+MG112b_Sz17_35_34/
+MG136_sz2_35_34/
+MG136_sz2/

@@ -5,13 +5,13 @@ DDA (Delay Differential Analysis) demonstration script
 """
 import argparse
 import numpy as np
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import os
 import platform
 from itertools import combinations
-import seaborn as sns
+#import seaborn as sns
 from pathlib import Path
-from numpy import genfromtxt
+import h5py
 import pandas as pd
 
 # Import local functions
@@ -35,7 +35,7 @@ def main():
     print(f"  tau2 = {args.tau2}")
 
     # input seizure
-    FN_DATA = "trimmed_seizure.mat"
+    FN_DATA = "MG112b_Sz17_trimmed.mat"
     print(f"data path loaded")
 
     # validate input file
@@ -45,10 +45,12 @@ def main():
         )
         exit(1)
 
-    # Load data
-    Y = genfromtxt(FN_DATA, delimiter=',')
-    Y = Y[:, 1:]
-    Y = Y[Y.shape[0]//2:, :]  # trim to second half (post-alignment), matching MATLAB: x = x(2049:end,:)
+    # Load data from MATLAB v7.3 (.mat = HDF5) file.
+    # The FieldTrip struct stores the signal in trimmed.trial{1,1} as
+    # [channels x samples]; h5py reads it transposed as [samples x channels].
+    with h5py.File(FN_DATA, 'r') as f:
+        trial_ref = f['trimmed/trial'][0, 0]
+        Y = np.array(f[trial_ref])  # (samples, channels) = (time, channels)
 
     # DDA parameters
     WL = 512
@@ -144,7 +146,7 @@ def main():
     print(ST[:, 0, 1])
 
     ## Save the result
-    output_dir = Path("MG136_sz2") # output directory
+    output_dir = Path("MG112b_Sz17_35_34") # output directory
     output_dir.mkdir(exist_ok=True)
 
     for n in range(Y.shape[1]):
