@@ -51,13 +51,133 @@ def deriv_all(data, dm, order=2, dt=1.0):
             for n2 in range(n1 + 1, dm + 1):
                 d += 1
                 ddata -= (
-                    (data[t - n2] - data[t + n2]) * n1**3
-                    - (data[t - n1] - data[t + n1]) * n2**3
+                    (data[t - n2] - data[t + n2]) * n1**3 - (data[t - n1] - data[t + n1]) * n2**3
                 ) / (n1**3 * n2 - n1 * n2**3)
 
         ddata /= d / dt
 
     return ddata
+
+
+def nr_multicombinations(nr_tau: int, order: int) -> int:
+    """
+    Count number of multicombinations with repetition.
+
+    Matches the C implementation exactly.
+
+    Args:
+        nr_tau: Number of tau values (delays)
+        order: Maximum order of monomials
+
+    Returns:
+        Total number of monomials
+    """
+    result = 0
+    current = 1
+    for k in range(1, order + 1):
+        current = int(current * (k + nr_tau - 1) / k)
+        result += current
+    return result
+
+
+def monomial_list_c(nr_tau: int, order: int) -> NDArray:
+    """
+    Generate monomial list matching the C implementation exactly.
+
+    Each row is a monomial, each column position represents an exponent slot.
+    Values 0 mean unused, values 1-nr_tau indicate which tau index.
+
+    For nr_tau=2, order=4:
+    Index 1:  [0,0,0,1] = x(t-tau1)
+    Index 2:  [0,0,0,2] = x(t-tau2)
+    Index 10: [1,1,1,1] = x(t-tau1)^4
+
+    Args:
+        nr_tau: Number of tau values
+        order: Maximum order of monomials
+
+    Returns:
+        Array of shape (total, order) containing monomial indices
+    """
+    total = nr_multicombinations(nr_tau, order)
+    monomials = np.zeros((total, order), dtype=int)
+
+    idx = 0
+    for deg in range(1, order + 1):
+        # Count for this degree
+        count = nr_multicombinations(nr_tau, deg)
+        if deg > 1:
+            count -= nr_multicombinations(nr_tau, deg - 1)
+
+        # First term of this degree: all 1s in rightmost positions
+        for i in range(order - deg, order):
+            monomials[idx, i] = 1
+
+        prev = idx
+        idx += 1
+
+        # Generate remaining terms for this degree
+        for _ in range(1, count):
+            # Copy previous
+            monomials[idx] = monomials[prev].copy()
+
+            # Increment: find rightmost position that can be incremented
+            for col in range(order - 1, order - deg - 1, -1):
+                if monomials[idx, col] < nr_tau:
+                    monomials[idx, col] += 1
+                    # Reset all positions to the right to the same value
+                    for k in range(col + 1, order):
+                        monomials[idx, k] = monomials[idx, col]
+                    break
+
+            prev = idx
+            idx += 1
+
+    return monomials
+
+
+def build_design_matrix(
+    DATA: NDArray,
+    TAU: List[int],
+    TM: int,
+    model_indices: List[int],
+    nr_tau: int = 2,
+    order: int = 3,
+) -> NDArray:
+    """
+    Build design matrix for DDA based on MODEL indices.
+
+    Args:
+        DATA: Normalized data array
+        TAU: List of delay values
+        TM: Maximum delay (max(TAU))
+        model_indices: List of 1-based indices into monomial list
+        nr_tau: Number of tau values (default 2)
+        order: Maximum order of monomials (default 3)
+
+    Returns:
+        Design matrix M of shape (len(DATA)-TM, len(model_indices))
+    """
+    monomials = monomial_list_c(nr_tau, order)
+    n_samples = len(DATA) - TM
+    n_terms = len(model_indices)
+
+    M = np.ones((n_samples, n_terms))
+
+    for term_idx, model_idx in enumerate(model_indices):
+        # model_idx is 1-based, convert to 0-based
+        monomial = monomials[model_idx - 1]
+
+        # Build the product of delayed terms
+        for pos in range(order):
+            tau_idx = monomial[pos]
+            if tau_idx > 0:
+                # tau_idx is 1-based: 1 means TAU[0], 2 means TAU[1], etc.
+                delay = TAU[tau_idx - 1]
+                # Multiply by x(t-delay) for this position
+                M[:, term_idx] *= DATA[TM - delay : len(DATA) - delay]
+
+    return M
 
 
 def ensure_directory_exists(directory: str) -> None:
@@ -66,7 +186,7 @@ def ensure_directory_exists(directory: str) -> None:
     Args:
         directory: Path to directory to create
     """
-    Path(directory).mkdir(exist_ok=True)
+    Path(directory).mkdir(parents=True, exist_ok=True)
 
 
 # Maintain backward compatibility
@@ -151,15 +271,11 @@ def integrate_ode_general(
     # Execute command
     if platform.system() == "Windows":
         # Windows needs split arguments
-        result = subprocess.run(
-            cmd_parts, capture_output=not output_filename, text=True
-        )
+        result = subprocess.run(cmd_parts, capture_output=not output_filename, text=True)
     else:
         # Unix-like systems use shell
         cmd = " ".join(cmd_parts)
-        result = subprocess.run(
-            cmd, shell=True, capture_output=not output_filename, text=True
-        )
+        result = subprocess.run(cmd, shell=True, capture_output=not output_filename, text=True)
 
     # Process output if no file specified
     if not output_filename:
@@ -206,9 +322,7 @@ def generate_monomial_indices(dimension: int, order: int) -> NDArray:
                 if indices[prev_row, order - col - 2] < dimension:
                     for j in range(power):
                         if i + j < total_monomials:
-                            indices[i + j, order - col - 2] = (
-                                indices[prev_row, order - col - 2] + 1
-                            )
+                            indices[i + j, order - col - 2] = indices[prev_row, order - col - 2] + 1
 
     # Filter valid monomials
     valid_monomials = []
@@ -269,9 +383,7 @@ def create_model(system: NDArray) -> Tuple[NDArray, int, int]:
 make_MODEL = create_model
 
 
-def create_mod_nr(
-    system: NDArray, num_systems: int
-) -> Tuple[NDArray, int, int, NDArray]:
+def create_mod_nr(system: NDArray, num_systems: int) -> Tuple[NDArray, int, int, NDArray]:
     """
     Create MOD_nr encoding for multiple coupled systems.
 
@@ -322,9 +434,7 @@ def create_mod_nr(
 make_MOD_nr = create_mod_nr
 
 
-def create_coupling_mod_nr(
-    from_to: NDArray, dimension: int, monomial_array: NDArray
-) -> NDArray:
+def create_coupling_mod_nr(from_to: NDArray, dimension: int, monomial_array: NDArray) -> NDArray:
     """
     Create MOD_nr for coupling between systems.
 

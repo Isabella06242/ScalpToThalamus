@@ -12,13 +12,13 @@ from typing import List, Optional, Tuple
 import numpy as np
 from numpy.typing import NDArray
 
-from .dda_functions import build_design_matrix, deriv_all
-from .dda_parallel import (
+from dda_functions import build_design_matrix, deriv_all
+from dda_parallel import (
     get_optimal_n_processes,
     parallel_process_windows,
     process_window_ct,
 )
-from .utils import rmse
+from utils import rmse
 
 
 def compute_ct_pair(
@@ -56,6 +56,8 @@ def compute_ct_pair(
     TM = max(TAU)
     WN = int(1 + np.floor((len(data1) - (WL + TM + 2 * dm - 1)) / WS))
 
+    if model is None:
+        model = [1, 1, 3]
     n_coeffs = len(model)
 
     CT = np.full((WN, n_coeffs + 1), np.nan)
@@ -188,6 +190,8 @@ def compute_ct_multiple(
     TM = max(TAU)
     WN = int(1 + np.floor((Y.shape[0] - (WL + TM + 2 * dm - 1)) / WS))
 
+    if model is None:
+        model = [1, 1, 3]
     n_coeffs = len(model)
 
     CT = np.full((WN, n_coeffs + 1, len(LIST)), np.nan)
@@ -241,18 +245,24 @@ def compute_ct_multiple(
                 ddata1 = deriv_all(data1, dm)
                 data1 = data1[dm:-dm]
 
-                STD = np.std(data1, ddof=1)
-                DATA1 = (data1 - np.mean(data1)) / STD
-                dDATA1 = ddata1 / STD
+                STD1 = np.std(data1, ddof=1)
 
                 # Process second channel
                 data2 = Y[anf : ende + 1, ch2]
                 ddata2 = deriv_all(data2, dm)
                 data2 = data2[dm:-dm]
 
-                STD = np.std(data2, ddof=1)
-                DATA2 = (data2 - np.mean(data2)) / STD
-                dDATA2 = ddata2 / STD
+                STD2 = np.std(data2, ddof=1)
+
+                if STD1 == 0 or STD2 == 0:  # flat window — skip, leave this row NaN
+                    flat = ch1 if STD1 == 0 else ch2
+                    print(f"    [CT] flat window: pair ({ch1},{ch2}) channel {flat}, window {wn} -> NaN")
+                    continue
+
+                DATA1 = (data1 - np.mean(data1)) / STD1
+                dDATA1 = ddata1 / STD1
+                DATA2 = (data2 - np.mean(data2)) / STD2
+                dDATA2 = ddata2 / STD2
 
                 # Build design matrices
                 M1 = build_design_matrix(DATA1, TAU, TM, model, nr_tau=nr_tau, order=order)

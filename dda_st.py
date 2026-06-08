@@ -11,14 +11,14 @@ from typing import Any, Dict, Optional, Tuple, Union
 import numpy as np
 from numpy.typing import NDArray
 
-from .dda_functions import build_design_matrix, deriv_all
-from .dda_output_converter import convert_dda_output
-from .dda_parallel import (
+from dda_functions import build_design_matrix, deriv_all
+from dda_output_converter import convert_dda_output
+from dda_parallel import (
     get_optimal_n_processes,
     parallel_process_windows,
     process_window_st,
 )
-from .utils import rmse
+from utils import rmse
 
 
 def _process_window_st(
@@ -120,6 +120,8 @@ def compute_st_single(
     TM = max(TAU)
     WN = int(1 + np.floor((len(data) - (WL + TM + 2 * dm - 1)) / WS))
 
+    if model is None:
+        model = [1, 1, 4]
     n_coeffs = len(model)
     ST = np.full((WN, n_coeffs + 1), np.nan)
 
@@ -214,6 +216,8 @@ def compute_st_multiple(
     TM = max(TAU)
     WN = int(1 + np.floor((Y.shape[0] - (WL + TM + 2 * dm - 1)) / WS))
     n_channels = Y.shape[1]
+    if model is None:
+        model = [1, 1, 4]
     n_coeffs = len(model)
 
     ST = np.full((WN, n_coeffs + 1, n_channels), np.nan)
@@ -257,6 +261,9 @@ def compute_st_multiple(
                 data = data[dm:-dm]
 
                 STD = np.std(data, ddof=1)  # Use sample std to match Julia
+                if STD == 0:  # flat window — skip, leave this row NaN
+                    print(f"    [ST] flat window: channel {n_Y}, window {wn} -> NaN")
+                    continue
                 DATA = (data - np.mean(data)) / STD
                 dDATA = ddata / STD
 

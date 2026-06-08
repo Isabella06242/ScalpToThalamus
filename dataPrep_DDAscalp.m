@@ -8,7 +8,7 @@ seizureFiles = seizureFiles(1:308,1:5);
 data_path = '\\172.17.146.246\Tarzan3\Seizures\MAT files converted from EDF\';
 saving_path = '\\172.17.146.246\Tarzan3\Personnel_Folders\Yujie\trimmedEEG_SpreadToThalamus\';
 
-for sz = 1:size(seizureFiles,1)
+for sz = 178:188
 
     peri_sz_time = [30 30];
 

@@ -57,7 +57,7 @@ for FN_DATA in fn_list:
     # The FieldTrip struct stores the signal in trimmed.trial{1,1} as
     # [channels x samples]; h5py reads it transposed as [samples x channels].
     with h5py.File(FN_DATA, 'r') as f:
-        trial_ref = f['trimmed/trial'][0, 0]
+        trial_ref = f['data/trial'][0, 0]
         Y = np.array(f[trial_ref])  # (samples, channels) = (time, channels)
 
     # ST-dda

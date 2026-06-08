@@ -12,8 +12,8 @@ from typing import Callable, List, Optional, Tuple
 import numpy as np
 from numpy.typing import NDArray
 
-from .dda_functions import deriv_all
-from .utils import rmse
+from dda_functions import deriv_all
+from utils import rmse
 
 
 def process_window_st(
@@ -48,6 +48,8 @@ def process_window_st(
     window_data = window_data[dm:-dm]
 
     STD = np.std(window_data, ddof=1)
+    if STD == 0:  # flat window — return NaN coefficients
+        return wn, np.full(4, np.nan)
     DATA = (window_data - np.mean(window_data)) / STD
     dDATA = ddata / STD
 
@@ -108,8 +110,6 @@ def process_window_ct(
     window_data1 = window_data1[dm:-dm]
 
     STD1 = np.std(window_data1, ddof=1)
-    DATA1 = (window_data1 - np.mean(window_data1)) / STD1
-    dDATA1 = ddata1 / STD1
 
     # Process second timeseries
     window_data2 = data2[anf : ende + 1]
@@ -117,6 +117,12 @@ def process_window_ct(
     window_data2 = window_data2[dm:-dm]
 
     STD2 = np.std(window_data2, ddof=1)
+
+    if STD1 == 0 or STD2 == 0:  # flat window — return NaN coefficients
+        return wn, np.full(4, np.nan)
+
+    DATA1 = (window_data1 - np.mean(window_data1)) / STD1
+    dDATA1 = ddata1 / STD1
     DATA2 = (window_data2 - np.mean(window_data2)) / STD2
     dDATA2 = ddata2 / STD2
 

@@ -231,8 +231,8 @@ def run_full_de_analysis(
     from dda_ct import compute_ct_multiple
     from dda_st import compute_st_multiple
 
-    # Compute ST for all channels
-    ST = compute_st_multiple(Y, TAU, dm, order, WL, WS)
+    # Compute ST for all channels (need raw array, not the dict format)
+    ST = compute_st_multiple(Y, TAU, dm, order, WL, WS, return_dict=False)
 
     # Compute CT for all channel pairs
     CT, channel_pairs = compute_ct_multiple(Y, TAU, dm, order, WL, WS)
