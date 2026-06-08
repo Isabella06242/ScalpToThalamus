@@ -2,9 +2,9 @@
 Train an SVM to classify a seizure EEG channel as no-spread vs strong-spread
 to the thalamus, from its DDA coefficient features.
 
-Uses 30% of the channels (stratified across both recordings) for training, then
-saves the fitted model + the split parameters so test_svm.py evaluates on the
-matching held-out 70%.
+Uses 30% of the patients (patient-level split, all of a patient's channels on
+one side) for training, then saves the fitted model + the split parameters so
+test_svm.py evaluates on the matching held-out 70% of patients.
 
 Run:
     python train_svm.py
@@ -23,10 +23,12 @@ SEED = 42
 
 
 def main():
-    X_tr, X_te, y_tr, y_te, id_tr, id_te = load_split(
+    X_tr, X_te, y_tr, y_te, id_tr, id_te, g_tr, g_te = load_split(
         train_frac=TRAIN_FRAC, seed=SEED
     )
     n0, n1 = np.bincount(y_tr, minlength=2)
+    print(f"Train patients: {sorted(set(g_tr))}")
+    print(f"Test  patients: {sorted(set(g_te))}")
     print(f"Training samples: {len(y_tr)}  (no_spread={n0}, strong_spread={n1})")
     print(f"Held-out test samples: {len(y_te)}")
 

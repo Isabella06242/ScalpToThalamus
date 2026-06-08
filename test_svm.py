@@ -1,8 +1,9 @@
 """
-Evaluate the trained thalamic-spread SVM on the held-out 70% of channels.
+Evaluate the trained thalamic-spread SVM on the held-out 70% of patients.
 
-Reproduces the exact split used in training (same seed/frac stored in the model
-bundle), predicts on the test channels, and compares to their true labels.
+Reproduces the exact patient-level split used in training (same seed/frac stored
+in the model bundle), predicts on the held-out patients' channels, and compares
+to their true labels.
 
 Metrics:
     Accuracy          - overall fraction correct
@@ -36,10 +37,11 @@ def main():
     clf = bundle["model"]
 
     # Reproduce the SAME partition used during training, then keep the test side.
-    X_tr, X_te, y_tr, y_te, id_tr, id_te = load_split(
+    X_tr, X_te, y_tr, y_te, id_tr, id_te, g_tr, g_te = load_split(
         train_frac=bundle["train_frac"], seed=bundle["seed"]
     )
     n0, n1 = np.bincount(y_te, minlength=2)
+    print(f"Test patients: {sorted(set(g_te))}")
     print(f"Test samples: {len(y_te)}  (no_spread={n0}, strong_spread={n1})")
 
     y_pred = clf.predict(X_te)
