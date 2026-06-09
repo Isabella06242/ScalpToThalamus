@@ -8,6 +8,7 @@ timeseries and cross-timeseries analysis.
 
 from typing import Optional, Tuple
 
+import os
 import numpy as np
 from numpy.typing import NDArray
 
@@ -60,6 +61,184 @@ def compute_dynamical_ergodicity(
         E[ch2, ch1] = E[ch1, ch2]  # Symmetric matrix
 
     return E
+
+
+def compute_dynamical_ergodicity_windowed(
+    ST: NDArray,
+    CT: NDArray,
+    channel_pairs: NDArray,
+) -> NDArray:
+    """
+    Compute a time-resolved ergodicity matrix — one matrix per window, instead
+    of averaging the errors over windows first (cf. compute_dynamical_ergodicity).
+
+    Args:
+        ST: Single timeseries results, shape (WN, n_coeffs+1, n_channels).
+            Last column (index -1) holds the per-window error.
+        CT: Cross timeseries results, shape (WN, n_coeffs+1, n_pairs).
+        channel_pairs: Array of channel pairs, shape (n_pairs, 2), 0-based.
+
+    Returns:
+        E of shape (WN, n_channels, n_channels) where
+        E[w, i, j] = |mean([st_i(w), st_j(w)]) / ct_ij(w) - 1|.
+    """
+    WN = ST.shape[0]
+    n_channels = ST.shape[2]
+
+    st = ST[:, -1, :]  # (WN, n_channels), per-window error
+    ct = CT[:, -1, :]  # (WN, n_pairs), per-window error
+
+    E = np.full((WN, n_channels, n_channels), np.nan)
+    for wn in range(WN):
+        for n_pair, (ch1, ch2) in enumerate(channel_pairs):
+            val = abs(np.mean([st[wn, ch1], st[wn, ch2]]) / ct[wn, n_pair] - 1)
+            E[wn, ch1, ch2] = val
+            E[wn, ch2, ch1] = val
+    return E
+
+
+def save_de_windowed_csv(
+    E_windowed: NDArray,
+    channel_pairs: NDArray,
+    csv_path: str,
+    channel_names: Optional[list] = None,
+    WS: Optional[int] = None,
+    sampling_rate: Optional[float] = None,
+) -> None:
+    """
+    Save the time-resolved ergodicity to CSV in long format: one row per
+    window per pair (window, ch1, ch2, ergodicity), so the temporal change
+    is preserved.
+
+    Args:
+        E_windowed: Array of shape (WN, n_channels, n_channels) from
+            compute_dynamical_ergodicity_windowed.
+        channel_pairs: Array of shape (n_pairs, 2), 0-based channel indices.
+        csv_path: Output CSV path.
+        channel_names: Optional labels for channels (defaults to 0-based index).
+        WS: Window shift in samples. If given (with sampling_rate), a
+            't_sec' column is added marking each window's start time.
+        sampling_rate: Sampling rate in Hz, used with WS for the time column.
+    """
+    import pandas as pd
+
+    WN = E_windowed.shape[0]
+
+    def _name(idx):
+        return channel_names[idx] if channel_names is not None else idx
+
+    rows = []
+    for wn in range(WN):
+        for ch1, ch2 in channel_pairs:
+            n1, n2 = _name(ch1), _name(ch2)
+            row = {"window": wn, "pair": f"{n1}-{n2}", "ch1": n1, "ch2": n2,
+                   "ergodicity": E_windowed[wn, ch1, ch2]}
+            if WS is not None and sampling_rate:
+                row["t_sec"] = wn * WS / sampling_rate
+            rows.append(row)
+
+    os.makedirs(os.path.dirname(os.path.abspath(csv_path)), exist_ok=True)
+    pd.DataFrame(rows).to_csv(csv_path, index=False)
+    print(f"  saved {csv_path} ({len(rows)} rows)")
+
+
+def save_st_csv(
+    ST: NDArray,
+    csv_path: str,
+    channel_names: Optional[list] = None,
+    average_windows: bool = False,
+) -> None:
+    """
+    Save single-timeseries (ST) DDA results to CSV, one row per channel/window.
+
+    Args:
+        ST: ST array of shape (WN, n_coeffs+1, n_channels).
+            The first n_coeffs columns are structure coefficients (a1..aN);
+            the last column is the residual error.
+        csv_path: Output CSV path.
+        channel_names: Optional labels for channels (defaults to 0-based index).
+        average_windows: If True, average over windows so there is one row per
+            channel (matching what compute_dynamical_ergodicity uses). If False,
+            keep every window (long format with a 'window' column).
+    """
+    import pandas as pd
+
+    WN, n_cols, n_channels = ST.shape
+    n_coeffs = n_cols - 1
+    coeff_cols = [f"a{i + 1}" for i in range(n_coeffs)]
+
+    rows = []
+    for ch in range(n_channels):
+        label = channel_names[ch] if channel_names is not None else ch
+        if average_windows:
+            vals = np.nanmean(ST[:, :, ch], axis=0)
+            row = {"channel": label}
+            row.update({c: vals[i] for i, c in enumerate(coeff_cols)})
+            row["error"] = vals[-1]
+            rows.append(row)
+        else:
+            for wn in range(WN):
+                vals = ST[wn, :, ch]
+                row = {"channel": label, "window": wn}
+                row.update({c: vals[i] for i, c in enumerate(coeff_cols)})
+                row["error"] = vals[-1]
+                rows.append(row)
+
+    os.makedirs(os.path.dirname(os.path.abspath(csv_path)), exist_ok=True)
+    pd.DataFrame(rows).to_csv(csv_path, index=False)
+    print(f"  saved {csv_path} ({len(rows)} rows)")
+
+
+def save_ct_csv(
+    CT: NDArray,
+    channel_pairs: NDArray,
+    csv_path: str,
+    channel_names: Optional[list] = None,
+    average_windows: bool = False,
+) -> None:
+    """
+    Save cross-timeseries (CT) DDA results to CSV, one row per pair/window.
+
+    Args:
+        CT: CT array of shape (WN, n_coeffs+1, n_pairs).
+            The first n_coeffs columns are structure coefficients (a1..aN);
+            the last column is the residual error.
+        channel_pairs: Array of shape (n_pairs, 2) with 0-based channel indices.
+        csv_path: Output CSV path.
+        channel_names: Optional labels for channels (defaults to 0-based index).
+        average_windows: If True, average over windows so there is one row per
+            pair (matching what compute_dynamical_ergodicity uses).
+    """
+    import pandas as pd
+
+    WN, n_cols, n_pairs = CT.shape
+    n_coeffs = n_cols - 1
+    coeff_cols = [f"a{i + 1}" for i in range(n_coeffs)]
+
+    def _name(idx):
+        return channel_names[idx] if channel_names is not None else idx
+
+    rows = []
+    for p in range(n_pairs):
+        ch1, ch2 = channel_pairs[p]
+        base = {"pair": p, "ch1": _name(ch1), "ch2": _name(ch2)}
+        if average_windows:
+            vals = np.nanmean(CT[:, :, p], axis=0)
+            row = dict(base)
+            row.update({c: vals[i] for i, c in enumerate(coeff_cols)})
+            row["error"] = vals[-1]
+            rows.append(row)
+        else:
+            for wn in range(WN):
+                vals = CT[wn, :, p]
+                row = dict(base, window=wn)
+                row.update({c: vals[i] for i, c in enumerate(coeff_cols)})
+                row["error"] = vals[-1]
+                rows.append(row)
+
+    os.makedirs(os.path.dirname(os.path.abspath(csv_path)), exist_ok=True)
+    pd.DataFrame(rows).to_csv(csv_path, index=False)
+    print(f"  saved {csv_path} ({len(rows)} rows)")
 
 
 def plot_ergodicity_heatmap(
@@ -203,6 +382,7 @@ def compare_with_external_de(
 
 
 def run_full_de_analysis(
+    FN_DATA: str,
     Y: NDArray,
     TAU: list,
     dm: int = 4,
@@ -211,6 +391,9 @@ def run_full_de_analysis(
     WS: int = 1000,
     plot: bool = True,
     save_plot: Optional[str] = "ergodicity_heatmap.png",
+    save_windowed_de: bool = True,
+    sampling_rate: Optional[float] = None,
+    channel_names: Optional[list] = None,
 ) -> Tuple[NDArray, dict]:
     """
     Run complete dynamical ergodicity analysis on data.
@@ -224,6 +407,12 @@ def run_full_de_analysis(
         WS: Window shift (default: 1000)
         plot: Whether to create heatmap plot
         save_plot: Path to save plot
+        save_windowed_de: If True, also compute and save the time-resolved
+            (per-window) ergodicity to CSV instead of only the window-averaged E.
+        sampling_rate: Sampling rate in Hz; if given, the windowed DE CSV gets a
+            't_sec' column marking each window's start time.
+        channel_names: Optional 10-20 channel labels (length n_channels). Used
+            to label channels/pairs in the ST, CT, and DE CSV outputs.
 
     Returns:
         Tuple of (ergodicity matrix, statistics dictionary)
@@ -231,14 +420,52 @@ def run_full_de_analysis(
     from dda_ct import compute_ct_multiple
     from dda_st import compute_st_multiple
 
+    # Clean base name: strip directory and extension from FN_DATA
+    # e.g. 'test_10/EM40_Sz18_scalp.mat' -> 'EM40_Sz18_scalp'
+    base = os.path.splitext(os.path.basename(FN_DATA))[0]
+
     # Compute ST for all channels (need raw array, not the dict format)
     ST = compute_st_multiple(Y, TAU, dm, order, WL, WS, return_dict=False)
+
+    # save ST results (per-channel)
+    OUT_DIR = 'ST_test_10'
+    os.makedirs(OUT_DIR, exist_ok=True)
+    name = base
+    np.save(os.path.join(OUT_DIR, f"{name}_ST.npy"), ST)
+    save_st_csv(ST, os.path.join(OUT_DIR, f"{name}_ST.csv"), channel_names=channel_names)
+    print(f"  saved {name}_ST.npy and {name}_ST.csv")
+
 
     # Compute CT for all channel pairs
     CT, channel_pairs = compute_ct_multiple(Y, TAU, dm, order, WL, WS)
 
-    # Compute ergodicity matrix
+    # save CT results (per-pair)
+    OUT_DIR = 'CT_test_10'
+    os.makedirs(OUT_DIR, exist_ok=True)
+    name = base
+    np.save(os.path.join(OUT_DIR, f"{name}_CT.npy"), CT)
+    save_ct_csv(CT, channel_pairs, os.path.join(OUT_DIR, f"{name}_CT.csv"), channel_names=channel_names)
+    print(f"  saved {name}_CT.npy and {name}_CT.csv")
+
+
+    # Compute ergodicity matrix (window-averaged)
     E = compute_dynamical_ergodicity(ST, CT, channel_pairs)
+
+    # Optionally save the time-resolved (per-window) ergodicity
+    if save_windowed_de:
+        OUT_DIR = 'DE_test_10'
+        os.makedirs(OUT_DIR, exist_ok=True)
+        name = base
+        E_windowed = compute_dynamical_ergodicity_windowed(ST, CT, channel_pairs)
+        np.save(os.path.join(OUT_DIR, f"{name}_DE_windowed.npy"), E_windowed)
+        save_de_windowed_csv(
+            E_windowed,
+            channel_pairs,
+            os.path.join(OUT_DIR, f"{name}_DE_windowed.csv"),
+            channel_names=channel_names,
+            WS=WS,
+            sampling_rate=sampling_rate,
+        )
 
     # Compute statistics
     stats = analyze_ergodicity_statistics(E)
