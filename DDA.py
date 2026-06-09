@@ -25,12 +25,12 @@ fn_list = sorted(
 print(f"found {len(fn_list)} files in {DATA_DIR}")
 
 # output directory for per-file results
-OUT_DIR = 'test_10_results'
+OUT_DIR = 'DE_test_10'
 os.makedirs(OUT_DIR, exist_ok=True)
 
 WL = 512
 WS = 256
-TAU = [3, 4] # 1-10?
+TAU = [3, 4] # 3-10?
 dm = 4
 order = 3
 
@@ -60,6 +60,16 @@ for FN_DATA in fn_list:
         trial_ref = f['data/trial'][0, 0]
         Y = np.array(f[trial_ref])  # (samples, channels) = (time, channels)
 
+        # 10-20 channel names from data.label (cell array of char arrays)
+        label_refs = f['data/label'][:].flatten()
+        channel_names = [
+            ''.join(chr(c) for c in np.array(f[r]).flatten())
+            for r in label_refs
+        ]
+
+        # sampling rate from data.fsample (Hz)
+        fs = float(np.array(f['data/fsample']).flatten()[0])
+
     # ST-dda
     #ST = compute_st_multiple(Y, TAU, dm, order, WL, WS, False)
     #ST_result = ST
@@ -70,7 +80,10 @@ for FN_DATA in fn_list:
     #channel_pairs = CT[1]
 
     # DE-dda
-    E, dda_stats = run_full_de_analysis(Y, TAU, dm, order, WL, WS, False)
+    E, dda_stats = run_full_de_analysis(
+        FN_DATA, Y, TAU, dm, order, WL, WS, False,
+        sampling_rate=fs, channel_names=channel_names,
+    )
 
     results[FN_DATA] = (E, dda_stats)
 
